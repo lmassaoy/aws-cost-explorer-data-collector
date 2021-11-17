@@ -214,7 +214,7 @@ Resources:
           Arn: !GetAtt rLambdaFunction.Arn
           Id: LambdaFunction
           Input: !Sub |
-            {}
+            {"monitoredTag": "SolutionName"}
 
 
   rEventBridgeLambdaInvokePermission:
