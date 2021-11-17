@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+
+Description: >-
+  Stack responsible to build the components of the 'AWS Cost Explorer Data Collector'
+
+
+Parameters:
+  # AWS Lambda
+  pRoleName:
+    Default: lambda-role-aws-cost-explorer-data-collector
+    Description: Lambda function's role name
+    Type: String
+    MinLength: '1'
+    MaxLength: '100'
+  pFunctionName:
+    Default: aws-cost-explorer-data-collector
+    Description: Lambda function's name
+    Type: String
+  pFunctionDescription:
+    Default: This function is responsible to collect cost usage data from AWS Cost Explorer, save it in Amazon S3, and serve them in a Glue table
+    Description: Lambda function's description
+    Type: String
+  # Env Vars
+  pGlueDB:
+    Default: aws_costs
+    Description: Glue database used to store the table of the data collected
+    Type: String
+  pGlueTable:
+    Default: services_expenses
+    Description: Glue the table for the data collected
+    Type: String
+  pS3BucketName:
+    Default: my-cost-explorer-bucket
+    Description: Name of the S3 bucket to store the data collected
+    Type: String  
+  pS3Path:
+    Default: aws-cost-explorer-data/
+    Description: Prefix of the objects created from the data collected
+    Type: String
+  pPartitionDateColumnName:
+    Default: dt
+    Description: Name of the date column used to partition the data in Amazon S3
+    Type: String
+  pUncategorizedDataLabel:
+    Default: uncategorized
+    Description: Label used for uncategorized data (without child tag)
+    Type: String
+  pCostExplorerMetrics:
+    Default: AmortizedCost;BlendedCost;NetAmortizedCost;NetUnblendedCost;NormalizedUsageAmount;UnblendedCost;UsageQuantity
+    Description: Metrics extracted from the AWS Cost Explorer (list of values separated by ';')
+    Type: String
+  pTimeZone:
+    Default: Brazil/East
+    Description: Name of the TimeZone for Pytz
+    Type: String
+  # Amazon EventBridge
+  pEventBridgeRuleName:
+    Default: aws-cost-explorer-data-collector-trigger
+    Description: Name of the Amazon EventBridge scheduled rule to trigger data collector Lambda function
+    Type: String
+  pEventBridgeRuleDescription:
+    Default: Scheduled rule to trigger daily data collection from AWS Cost Explorer
+    Description: Description of the Amazon EventBridge scheduled rule to trigger data collector Lambda function
+    Type: String
+  pCronExpression:
+    Default: "cron(0 12 * * ? *)"
+    Description: Scheduled expression for the EventBridge rule
+    Type: String
+  pDataLakeTag:
+    Default: DataLake
+    Description: Tag value for the Produto
+    Type: String
+
+
+Resources:
+  rGlueDatabase:
+    Type: AWS::Glue::Database
+    Properties: 
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput: 
+        Name: !Ref pGlueDB
+
+
+  rLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref pRoleName
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+            - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLambdaExecute
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:DeleteObject
+            Effect: Allow
+            Resource:
+              - !Sub arn:aws:s3:::${pS3BucketName}
+              - !Sub arn:aws:s3:::${pS3BucketName}/${pS3Path}*
+        PolicyName: ReadWriteS3OutputData
+      - PolicyDocument:
+          Statement:
+          - Action:
+              - ce:DescribeCostCategoryDefinition
+              - ce:GetRightsizingRecommendation
+              - ce:GetCostAndUsage
+              - ce:GetSavingsPlansUtilization
+              - ce:GetAnomalies
+              - ce:GetReservationPurchaseRecommendation
+              - ce:GetCostForecast
+              - ce:GetPreferences
+              - ce:GetReservationUtilization
+              - ce:GetCostCategories
+              - ce:GetSavingsPlansPurchaseRecommendation
+              - ce:GetDimensionValues
+              - ce:GetSavingsPlansUtilizationDetails
+              - ce:GetAnomalySubscriptions
+              - ce:GetCostAndUsageWithResources
+              - ce:DescribeReport
+              - ce:GetReservationCoverage
+              - ce:GetSavingsPlansCoverage
+              - ce:GetAnomalyMonitors
+              - ce:DescribeNotificationSubscription
+              - ce:GetTags
+              - ce:GetUsageForecast
+            Effect: Allow
+            Resource: '*'
+        PolicyName: ReadCostExplorerAPI
+      - PolicyDocument:
+          Statement:
+          - Action:
+              - glue:SearchTables
+              - glue:BatchCreatePartition
+              - glue:CreateTable
+              - glue:GetTables
+              - glue:GetPartitions
+              - glue:BatchDeletePartition
+              - glue:UpdateTable
+              - glue:BatchGetPartition
+              - glue:GetDatabases
+              - glue:GetTable
+              - glue:GetDatabase
+              - glue:GetPartition
+              - glue:CreatePartition
+              - glue:DeletePartition
+              - glue:UpdatePartition
+            Effect: Allow
+            Resource:
+              - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog
+              - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/${pGlueDB}
+              - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/${pGlueDB}/${pGlueTable}
+          - Action:
+              - lakeformation:GrantPermissions
+              - lakeformation:GetDataAccess
+            Effect: Allow
+            Resource: '*'
+        PolicyName: GetLakeFormationDataAccess
+      Path: /
+
+
+  rLambdaFunction:
+    DependsOn:
+      - rLambdaRole
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref pFunctionName
+      Description: !Ref pFunctionDescription
+      Runtime: python3.8
+      Handler: lambda_function.lambda_handler
+      Code: lambda/lambda_function.py 
+      Role: !GetAtt rLambdaRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          GLUE_DB: !Ref pGlueDB
+          GLUE_TABLE: !Ref pGlueTable
+          S3_BUCKET: !Ref pS3BucketName
+          S3_PATH: !Ref pS3Path
+          METRICS: !Ref pCostExplorerMetrics
+          SERVICE_NAME: !Ref pFunctionName
+          DATE_COLUMN_NAME: !Ref pPartitionDateColumnName
+          UNCATEGORIZED_DATA: !Ref pUncategorizedDataLabel
+          TIMEZONE: !Ref pTimeZone
+      Layers:
+        - !ImportValue DL-Foundations-AWSLambdaPowertoolsLambdaLayerArn
+        - !ImportValue DL-Foundations-AWSDataWranglerLambdaLayerArn
+      Tags:
+        - Key: Name
+          Value: !Ref pFunctionName
+
+
+  rEventBridgeScheduledRule:
+    DependsOn: rLambdaFunction
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Ref pEventBridgeRuleName
+      Description: !Ref pEventBridgeRuleDescription
+      ScheduleExpression: !Ref pCronExpression
+      State: ENABLED
+      Targets:
+        -
+          Arn: !GetAtt rLambdaFunction.Arn
+          Id: LambdaFunction
+          Input: !Sub |
+            {}
+
+
+  rEventBridgeLambdaInvokePermission:
+    DependsOn: rEventBridgeScheduledRule
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt rLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt rEventBridgeScheduledRule.Arn

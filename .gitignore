@@ -1,3 +1,11 @@
+# VS Code
+*.DS_Store*
+
+# Local Project
+cloudformation/data-collector.packaged.yaml
+utils/aws-cost-explorer-data-collector.drawio
+cloudformation/full_deployment.sh
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

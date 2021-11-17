@@ -1,0 +1,14 @@
+{
+  "Parameters" : {
+    "pRoleName": "lambda-role-aws-cost-explorer-data-collector",
+    "pFunctionName": "aws-cost-explorer-data-collector",
+    "pTimeZone": "Brazil/East",
+    "pGlueDB": "aws_costs",
+    "pGlueTable": "services_expenses",
+    "pS3BucketName": "my-cost-explorer-bucket",
+    "pS3Path": "aws-cost-explorer-data/",
+    "pCostExplorerMetrics": "AmortizedCost;BlendedCost;NetAmortizedCost;NetUnblendedCost;NormalizedUsageAmount;UnblendedCost;UsageQuantity",
+    "pEventBridgeRuleName": "aws-cost-explorer-data-collector-trigger",
+    "pCronExpression": "cron(0 12 * * ? *)"
+  }
+}
